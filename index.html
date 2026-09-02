@@ -42,6 +42,7 @@
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 body{
   margin:0; background:var(--bg); color:var(--ink);
   font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
@@ -215,6 +216,15 @@ input.search::placeholder{color:var(--ink-3)}
   border-radius:9px; padding:10px 13px; margin-bottom:11px; font-size:12.5px;
 }
 .migrate .sp{flex:1}
+
+/* 폴백 사유 안내 */
+.notice{
+  display:flex; align-items:flex-start; gap:10px;
+  background:var(--danger-bg); border:1px solid var(--danger-mark); color:var(--danger);
+  border-radius:9px; padding:11px 14px; margin-bottom:14px; font-size:12.5px; line-height:1.55;
+}
+.notice b{display:block; margin-bottom:2px}
+.notice code{font-family:"IBM Plex Mono",monospace; font-size:11.5px}
 .migrate button{
   font:inherit; font-size:12px; font-weight:600; cursor:pointer; border-radius:7px; padding:6px 11px;
   background:var(--warn-mark); border:1px solid var(--warn-mark); color:#fff;
@@ -283,6 +293,10 @@ input.search::placeholder{color:var(--ink-3)}
       <div class="status-pill" id="conn"><span class="d"></span><span id="connText">연결 확인 중</span></div>
       <button class="btn" id="logout" hidden>로그아웃</button>
     </div>
+  </div>
+
+  <div class="notice" id="notice" hidden>
+    <div><b id="noticeTitle"></b><span id="noticeText"></span></div>
   </div>
 
   <div class="tiles">
@@ -749,6 +763,14 @@ input.search::placeholder{color:var(--ink-3)}
     document.getElementById("connText").textContent = text;
     document.getElementById("conn").classList.toggle("warnmode", !!warn);
   }
+  function notice(title, text){
+    var n = document.getElementById("notice");
+    if (!n) return;
+    document.getElementById("noticeTitle").textContent = title;
+    document.getElementById("noticeText").textContent = text;
+    n.hidden = false;
+    try { console.warn("[관리대장] " + title + " — " + text); } catch(e){}
+  }
   function loadLocal(label){
     local = true; col = null;
     setConn(label || "이 브라우저에만 저장", true);
@@ -901,11 +923,15 @@ input.search::placeholder{color:var(--ink-3)}
     if (!cfgReady){
       showGate(false);
       loadLocal("설정 전 · 이 브라우저에만 저장");
+      notice("Firebase 설정값이 비어 있습니다",
+             "HTML 파일 위쪽 FIREBASE_CONFIG의 apiKey와 projectId를 채우면 로그인 화면이 나오고 클라우드 저장으로 바뀝니다. 지금은 이 브라우저에만 저장됩니다.");
       return;
     }
     if (!window.firebase || !window.firebase.initializeApp){
       showGate(false);
       loadLocal("SDK를 불러오지 못함 · 이 브라우저에만 저장");
+      notice("Firebase SDK를 불러오지 못했습니다",
+             "gstatic.com 접속이 막혀 있습니다. 인터넷 연결, 사내 네트워크 차단, 광고 차단 확장 프로그램을 확인해 주십시오. 파일 위쪽 세 줄의 SDK 버전(10.12.2)이 잘못돼도 같은 증상이 납니다.");
       return;
     }
     try {
@@ -915,6 +941,8 @@ input.search::placeholder{color:var(--ink-3)}
     } catch(e){
       showGate(false);
       loadLocal("Firebase 초기화 실패 · 이 브라우저에만 저장");
+      notice("Firebase 초기화에 실패했습니다",
+             "설정값을 다시 확인해 주십시오. 오류: " + (e && e.message ? e.message : String(e)));
       return;
     }
     setConn("로그인 확인 중", true);
