@@ -201,6 +201,11 @@ input.search::placeholder{color:var(--ink-3)}
 }
 .gatecard button:disabled{opacity:.6; cursor:default}
 .gate-err{font-size:12px; color:var(--danger); margin-top:11px; min-height:16px; line-height:1.45}
+.gate-diag{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--ink-3);
+  margin-top:14px; padding-top:12px; border-top:1px solid var(--line-soft);
+  line-height:1.6; word-break:break-all;
+}
 #logout{margin-left:8px}
 
 /* 브라우저 기록 업로드 안내 */
@@ -264,6 +269,7 @@ input.search::placeholder{color:var(--ink-3)}
     <input id="gatePw" type="password" autocomplete="current-password" required>
     <button type="submit">로그인</button>
     <div class="gate-err" id="gateErr"></div>
+    <div class="gate-diag" id="gateDiag"></div>
   </form>
 </div>
 
@@ -764,27 +770,78 @@ input.search::placeholder{color:var(--ink-3)}
   document.getElementById("logout").addEventListener("click", function(){
     if (fbAuth) fbAuth.signOut();
   });
+  var AUTH_MSG = {
+    "auth/invalid-email": "이메일 형식이 올바르지 않습니다.",
+    "auth/user-not-found": "등록되지 않은 계정입니다. Firebase 콘솔 Authentication → Users에서 계정을 추가하십시오.",
+    "auth/wrong-password": "비밀번호가 맞지 않습니다.",
+    "auth/invalid-credential": "이메일이나 비밀번호가 맞지 않습니다.",
+    "auth/invalid-login-credentials": "이메일이나 비밀번호가 맞지 않습니다.",
+    "auth/user-disabled": "사용 중지된 계정입니다.",
+    "auth/too-many-requests": "시도가 많아 잠시 막혔습니다. 몇 분 뒤 다시 해 주십시오.",
+    "auth/operation-not-allowed": "이메일/비밀번호 로그인이 꺼져 있습니다. Authentication → Sign-in method에서 켜십시오.",
+    "auth/unauthorized-domain": "이 주소가 승인된 도메인에 없습니다. Authentication → Settings → 승인된 도메인에 추가하십시오.",
+    "auth/network-request-failed": "인증 서버에 연결하지 못했습니다. 네트워크나 확장 프로그램(광고 차단 등)을 확인해 주십시오.",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "apiKey 값이 올바르지 않습니다. firebaseConfig를 다시 복사해 주십시오.",
+    "auth/configuration-not-found": "이 프로젝트에 Authentication이 설정돼 있지 않습니다. 콘솔에서 Authentication을 시작해 주십시오.",
+    "auth/operation-not-supported-in-this-environment": "파일을 직접 연 상태(file://)에서는 로그인이 되지 않습니다. GitHub Pages 주소로 열어 주십시오."
+  };
+  function diag(msg){
+    var el = document.getElementById("gateDiag");
+    if (el) el.textContent = msg;
+    try { console.log("[관리대장] " + msg); } catch(e){}
+  }
+  function showAuthError(e){
+    var code = (e && e.code) ? e.code : "";
+    gateErr.textContent = AUTH_MSG[code] || "로그인에 실패했습니다.";
+    diag("오류 " + (code || "코드없음") + " · " + ((e && e.message) ? e.message : String(e)));
+  }
+
   gateForm.addEventListener("submit", function(ev){
     ev.preventDefault();
-    if (!fbAuth) return;
     gateErr.textContent = "";
-    var btn = gateForm.querySelector("button"); btn.disabled = true; btn.textContent = "확인 중…";
-    fbAuth.signInWithEmailAndPassword(
-      document.getElementById("gateEmail").value.trim(),
-      document.getElementById("gatePw").value
-    ).catch(function(e){
-      var m = {
-        "auth/invalid-email": "이메일 형식이 올바르지 않습니다.",
-        "auth/user-not-found": "등록되지 않은 계정입니다. Firebase 콘솔의 Authentication에서 계정을 추가하십시오.",
-        "auth/wrong-password": "비밀번호가 맞지 않습니다.",
-        "auth/invalid-credential": "이메일이나 비밀번호가 맞지 않습니다.",
-        "auth/too-many-requests": "시도가 많아 잠시 막혔습니다. 몇 분 뒤 다시 해 주십시오.",
-        "auth/unauthorized-domain": "이 주소가 승인된 도메인에 없습니다. Authentication → Settings → 승인된 도메인에 추가하십시오.",
-        "auth/network-request-failed": "네트워크에 연결하지 못했습니다."
-      };
-      gateErr.textContent = m[e && e.code] || ("로그인에 실패했습니다. (" + (e && e.code ? e.code : "unknown") + ")");
-    }).finally(function(){
+    var btn = gateForm.querySelector("button");
+    if (!fbAuth){
+      gateErr.textContent = "Firebase 인증이 준비되지 않았습니다. 설정값을 확인해 주십시오.";
+      diag("fbAuth 없음 · SDK 또는 설정값 문제");
+      return;
+    }
+    var email = document.getElementById("gateEmail").value.trim();
+    var pw = document.getElementById("gatePw").value;
+    btn.disabled = true; btn.textContent = "확인 중…";
+    diag("인증 요청 보내는 중… (" + email + ")");
+    var settled = false;
+    var timer = setTimeout(function(){
+      if (settled) return;
+      settled = true;
       btn.disabled = false; btn.textContent = "로그인";
+      gateErr.textContent = "인증 서버에서 응답이 없습니다. 네트워크, 승인된 도메인, 광고 차단 확장 프로그램을 확인해 주십시오.";
+      diag("응답 없음 (12초 초과)");
+    }, 12000);
+    function done(){ settled = true; clearTimeout(timer); btn.disabled = false; btn.textContent = "로그인"; }
+
+    var pr;
+    try {
+      pr = fbAuth.signInWithEmailAndPassword(email, pw);
+    } catch(e){ done(); showAuthError(e); return; }
+    if (!pr || typeof pr.then !== "function"){
+      done();
+      gateErr.textContent = "SDK가 올바르게 응답하지 않았습니다.";
+      diag("signInWithEmailAndPassword가 Promise를 반환하지 않음");
+      return;
+    }
+    pr.then(function(){
+      if (settled) return;
+      done();
+      diag("인증 성공 · 세션 확인 중…");
+      setTimeout(function(){
+        if (!col) {
+          gateErr.textContent = "로그인은 됐지만 화면이 넘어가지 않습니다. 브라우저 콘솔(F12)의 메시지를 확인해 주십시오.";
+          diag("인증은 성공했으나 onAuthStateChanged가 반응하지 않음");
+        }
+      }, 6000);
+    }).catch(function(e){
+      if (settled) return;
+      done(); showAuthError(e);
     });
   });
 
@@ -861,10 +918,21 @@ input.search::placeholder{color:var(--ink-3)}
       return;
     }
     setConn("로그인 확인 중", true);
+    diag("SDK " + ((window.firebase && firebase.SDK_VERSION) ? firebase.SDK_VERSION : "?") +
+         " · project " + FIREBASE_CONFIG.projectId +
+         " · authDomain " + FIREBASE_CONFIG.authDomain +
+         " · origin " + location.origin);
     fbAuth.onAuthStateChanged(function(user){
       if (user){
+        diag("세션 확인됨 · uid " + user.uid);
         local = false;
-        col = fbStore.collection("users").doc(user.uid).collection(COLLECTION);
+        try {
+          col = fbStore.collection("users").doc(user.uid).collection(COLLECTION);
+        } catch(e){
+          gateErr.textContent = "Firestore 경로를 만들지 못했습니다.";
+          diag("Firestore 오류 · " + (e && e.message ? e.message : String(e)));
+          return;
+        }
         rows.clear();
         showGate(false);
         document.getElementById("logout").hidden = false;
